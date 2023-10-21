@@ -2,10 +2,9 @@
 typedef int bool;
 
 struct Test {
-/*  int i;
+  int i;
   float f;
   const double long dl;
-  */
   const char * const * const **pc;
   const long long int *plli;
   //fptr f;

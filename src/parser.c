@@ -107,12 +107,18 @@ static bool parse_type_info(TypeInfo *p_info) {
         break; 
       }
 
-      case TOK_LONG: ++p_info->longness; break;
-      case TOK_UNSIGNED: p_info->is_unsigned = true; break;
+      case TOK_LONG: {
+        ++p_info->longness; 
+        break;
+      }
+      case TOK_UNSIGNED: {
+        p_info->is_unsigned = true; 
+        break;
+      }
 
       case TOK_CONST: {
         if (parser.previous.kind == TOK_STAR) {
-          p_info->pointer_info.is_const[p_info->pointer_info.inderections_count - 1] = true;
+          p_info->pointer_info.is_const[p_info->pointer_info.indirections_count - 1] = true;
           break;
         }
 
@@ -121,7 +127,7 @@ static bool parse_type_info(TypeInfo *p_info) {
       }
 
       case TOK_STAR: {
-        if (p_info->pointer_info.inderections_count++ == MAX_INDERECTION_LEVEL) {
+        if (p_info->pointer_info.indirections_count++ == MAX_INDERECTION_LEVEL) {
           error_at_current("maximum level of indirection has been exceeded");
           return false;
         }
@@ -129,8 +135,10 @@ static bool parse_type_info(TypeInfo *p_info) {
       }
 
 
-      case TOK_IDENTIFIER:
+      case TOK_IDENTIFIER: {
+        if (TYPE_UNINITIALIZED == p_info->base_type && p_info->longness > 0) p_info->base_type = TYPE_INT;
         return validate_type_info(p_info);
+      }
 
       default:
         error_at_current("expect type");
@@ -149,13 +157,18 @@ static bool parse_type_info(TypeInfo *p_info) {
 static bool handle_struct_body(StructInfo *out) {
   assert(NULL != out);
 
+  unsigned int offset = 0;
+
   while (!check(TOK_EOF) && !check(TOK_RIGHT_BRACE)) {
     VarInfo var_info = {0};
     if (!parse_type_info(&var_info.type_info)) {
       return false;
     }
 
+    var_info.name = parser.current.lexeme;
+    var_info.offset = offset;
     vec_push(out->fields, var_info);
+    offset += type_info_get_size(&var_info.type_info);
 
     {
       // logging
@@ -165,16 +178,16 @@ static bool handle_struct_body(StructInfo *out) {
         : string_view_from_cstr(base_type_to_cstr(var_info.type_info.base_type));
 
       logf_trace("PARSER", 
-                 "symbol " string_view_farg 
+                 "symbol " string_view_farg " with offset %d "
                  " %shas base type " string_view_farg ", %slongness %d%s\n",
-                 string_view_expand(parser.current.lexeme),
+                 string_view_expand(parser.current.lexeme), var_info.offset,
                  var_info.type_info.is_const ? "is const, " : "",
                  string_view_expand(base_type),
-                 var_info.type_info.pointer_info.inderections_count > 0 ? "is pointer, " : "",
+                 var_info.type_info.pointer_info.indirections_count > 0 ? "is pointer, " : "",
                  var_info.type_info.longness,
                  var_info.type_info.is_unsigned ? " ,is unsigned" : "");
 
-      for (unsigned int i = 0; i < var_info.type_info.pointer_info.inderections_count; ++i) {
+      for (unsigned int i = 0; i < var_info.type_info.pointer_info.indirections_count; ++i) {
         logf_trace("PARSER", "\t indirection %u is %s\n", 
                    i + 1, var_info.type_info.pointer_info.is_const[i] ? "const" : "nonconst");
       }
@@ -224,8 +237,6 @@ static bool handle_struct_definition(vec(StructInfo) *out) {
 
 
 bool parse(const char *source, vec(StructInfo) *out) {
-  
-
   scanner_init(source);
 
   do {
@@ -253,4 +264,28 @@ const char* base_type_to_cstr(BaseType t) {
     case TYPE_STRUCT: return "TYPE_STRUCT";
     default: return "<unknown base type>";
   }
+}
+
+
+size_t type_info_get_size(const TypeInfo *p_ti) {
+  assert(NULL != p_ti);
+  assert(TYPE_UNINITIALIZED != p_ti->base_type);
+
+  if (p_ti->pointer_info.indirections_count > 0) return sizeof(void*);
+
+  if (TYPE_STRUCT == p_ti->base_type) return 0;
+
+  if (0 == p_ti->longness) {
+    switch (p_ti->base_type) {
+      case TYPE_CHAR: return sizeof(char);
+      case TYPE_SHORT: return sizeof(short);
+      case TYPE_INT: return sizeof(int);
+      case TYPE_FLOAT: return sizeof(float);
+      case TYPE_DOUBLE: return sizeof(double);
+
+      default: break;
+    }
+  }
+
+  return 0;
 }

@@ -30,7 +30,7 @@ typedef enum {
 // Struct representing pointer information
 typedef struct {
   bool is_const[MAX_INDERECTION_LEVEL];
-  unsigned int inderections_count;
+  unsigned int indirections_count;
 } PointerInfo;
 
 // Struct representing type information
@@ -46,6 +46,7 @@ typedef struct {
 typedef struct {
   StringView name;
   TypeInfo type_info;
+  unsigned int offset;
 } VarInfo;
 
 typedef struct {
@@ -58,6 +59,7 @@ typedef struct {
 
 bool parse(const char *source, vec(StructInfo) *out);
 const char* base_type_to_cstr(BaseType t);
+size_t type_info_get_size(const TypeInfo *p_ti);
 
 
 #endif // !__SERC_PARSER_H__
