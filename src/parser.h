@@ -4,10 +4,12 @@
 #include "common.h"
 #include "token.h"
 #include "./lib/ds/vec.h"
+#include "./lib/ds/table.h"
 
 typedef struct {
   Token current;
   Token previous;
+  Table typedefs;
 } Parser;
 
 // Enum to represent the base types

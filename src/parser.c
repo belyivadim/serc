@@ -2,7 +2,6 @@
 
 #include "scanner.h"
 #include "./lib/ds/logger.h"
-#include "./lib/ds/allocator.h"
 
 #include "parser.h"
 
@@ -136,6 +135,21 @@ static bool parse_type_info(TypeInfo *p_info) {
 
 
       case TOK_IDENTIFIER: {
+        if (parser.current.lexeme.length >= 1024) {
+          error_at_current("Type name is too long.");
+          return false;
+        }
+
+        char buff[1024] = {0};
+        strncpy(buff, parser.current.lexeme.p_begin, parser.current.lexeme.length);
+
+        TypeInfo *tmp = NULL;
+        if (table_get(&parser.typedefs, buff, (void**)&tmp)) {
+          *p_info = *tmp;
+          advance();
+          return true;
+        }
+
         if (TYPE_UNINITIALIZED == p_info->base_type && p_info->longness > 0) p_info->base_type = TYPE_INT;
         return validate_type_info(p_info);
       }
@@ -197,6 +211,8 @@ static bool handle_struct_body(StructInfo *out) {
     consume(TOK_SEMICOLON, "expect ';'");
   }
 
+  consume(TOK_RIGHT_BRACE, "expect '}'");
+
   return true;
 }
 
@@ -215,7 +231,7 @@ static bool handle_struct_definition(vec(StructInfo) *out) {
   } else {
     struct_name = parser.previous.lexeme;
     if (!match(TOK_LEFT_BRACE)) {
-      return true;
+      return false;
     }
   }
 
@@ -235,19 +251,78 @@ static bool handle_struct_definition(vec(StructInfo) *out) {
   return true;
 }
 
-
-bool parse(const char *source, vec(StructInfo) *out) {
-  scanner_init(source);
-
-  do {
-    advance();
-    if (parser.current.kind == TOK_STRUCT) {
+static bool parse_iteration(vec(StructInfo) *out) {
+  switch (parser.current.kind) {
+    case TOK_STRUCT: {
       if (!handle_struct_definition(out)) {
         return false;
       } 
+      consume(TOK_SEMICOLON, "expect ';' after struct definition");
+      break;
     }
+
+    case TOK_TYPEDEF: {
+      advance();
+      TypeInfo *p_ti = a_callocate(1, sizeof(TypeInfo));
+
+      if (TOK_STRUCT == parser.current.kind) {
+        if (!handle_struct_definition(out)) {
+          a_free(p_ti);
+          return false;
+        } 
+
+        StructInfo *p_si = vec_back(*out);
+        p_ti->struct_name = p_si->name;
+        p_ti->base_type = TYPE_STRUCT;
+      } else {
+        if (!parse_type_info(p_ti)) {
+          a_free(p_ti);
+          return false;
+        }
+      }
+
+      char *key = a_callocate(parser.current.lexeme.length, sizeof(char));
+      strncpy(key, parser.current.lexeme.p_begin, parser.current.lexeme.length);
+      if (!table_set(&parser.typedefs, key, p_ti)) {
+        // TODO:
+        log_error("PARSER", "Current implementation does not support not unique typedefs even in different source files.");
+        a_free(p_ti);
+        a_free(key);
+        return false;
+      }
+
+      advance();
+      consume(TOK_SEMICOLON, "expect ';' after typedef");
+      break;
+    }
+
+    default: advance();
+  }
+
+  return true;
+}
+
+static bool typedefs_key_cmp(const char *lhs, const char *rhs) {
+  return 0 == strcmp(lhs, rhs);
+}
+
+static void typedefs_free_cb(char *key, TypeInfo *value) {
+  a_free(key);
+  a_free(value);
+}
+
+bool parse(const char *source, vec(StructInfo) *out) {
+  // TODO: parser initialization and destruction
+  scanner_init(source);
+  table_init(&parser.typedefs, hash_cstr_default, 
+             (KeyCmpFunc)typedefs_key_cmp, (FreeKeyValFunc)typedefs_free_cb);
+  advance();
+
+  do {
+    if (!parse_iteration(out)) return false;
   } while (parser.current.kind != TOK_EOF);
 
+  table_free(&parser.typedefs);
   return true;
 }
 

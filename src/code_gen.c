@@ -34,6 +34,11 @@ bool finalize_out_files_json(FILE *out_h, FILE *out_c) {
   return true;
 }
 
+static bool is_primitive_type(BaseType type) {
+  return TYPE_CHAR == type || TYPE_SHORT == type || TYPE_INT == type
+    || TYPE_FLOAT == type || TYPE_DOUBLE == type || TYPE_VOID == type;
+}
+
 
 static StringBuilder type_info_get_ser_func_primitive_type(const TypeInfo *p_ti) {
   assert(NULL != p_ti);
@@ -50,13 +55,13 @@ static StringBuilder type_info_get_ser_func_primitive_type(const TypeInfo *p_ti)
   }
 
   switch (p_ti->base_type) {
-    case TYPE_CHAR: string_builder_append_cstr(&sb, "char_"); break;
-    case TYPE_SHORT: string_builder_append_cstr(&sb, "short_"); break;
-    case TYPE_INT: string_builder_append_cstr(&sb, "int_"); break;
-    case TYPE_FLOAT: string_builder_append_cstr(&sb, "float_"); break;
-    case TYPE_DOUBLE: string_builder_append_cstr(&sb, "double_"); break;
+    case TYPE_CHAR: string_builder_append_cstr(&sb, "char"); break;
+    case TYPE_SHORT: string_builder_append_cstr(&sb, "short"); break;
+    case TYPE_INT: string_builder_append_cstr(&sb, "int"); break;
+    case TYPE_FLOAT: string_builder_append_cstr(&sb, "float"); break;
+    case TYPE_DOUBLE: string_builder_append_cstr(&sb, "double"); break;
     default: 
-      //assert(false && "Not reachable"); 
+      assert(false && "Not reachable"); 
       break;
   }
 
@@ -141,10 +146,18 @@ bool generate_json_for_struct(const StructInfo *p_si, FILE *out_h, FILE *out_c) 
 
     // serialize fields
     vec_for_each(p_si->fields, i, {
-                  StringBuilder type = type_info_get_ser_func_primitive_type(&p_si->fields[i].type_info);
-                  fprintf(out_c, "\tSER_VALIDATE(serializer_json_start_field(p_ser, \"%.*s\"));\n", string_view_expand(p_si->fields[i].name));
-                  fprintf(out_c, "\tSER_VALIDATE(serializer_%sto_json(p_ser, tmp->%.*s));\n", 
-                          string_builder_get_cstr(&type), string_view_expand(p_si->fields[i].name));
+                  bool is_primitive = is_primitive_type(p_si->fields[i].type_info.base_type);
+                  StringBuilder type;
+                  if (is_primitive) {
+                    type = type_info_get_ser_func_primitive_type(&p_si->fields[i].type_info);
+                  } else {
+                    string_builder_init(type);
+                    string_builder_append_string_view(&type, &p_si->fields[i].type_info.struct_name);
+                  }
+                  fprintf(out_c, "\tSER_VALIDATE(serializer_json_start_field(p_ser, \"%.*s\"));\n", 
+                          string_view_expand(p_si->fields[i].name));
+                  fprintf(out_c, "\tSER_VALIDATE(serializer_%s_to_json(p_ser, %stmp->%.*s));\n", 
+                          string_builder_get_cstr(&type), is_primitive ? "" : "&", string_view_expand(p_si->fields[i].name));
                   fprintf(out_c, "\tSER_VALIDATE(serializer_json_end_field(p_ser));\n\n");
                   string_builder_free(type);
                  });
