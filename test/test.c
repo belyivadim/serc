@@ -3,7 +3,7 @@ typedef int bool;
 typedef const int ID;
 
 typedef struct Test {
-  ID *ids;
+  ID ****ids;
   int i;
   float f;
   const double long dl;
@@ -14,7 +14,7 @@ typedef struct Test {
 } Test;
 
 struct Test2 {
-  Test t;
+  Test * t;
 };
 
 int main() {

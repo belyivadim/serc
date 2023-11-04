@@ -4,7 +4,7 @@
 #define SER_VALIDATE(call) do { if (!(call)) { return false; } } while (0)
 
 typedef struct Test {
-	const int  * ids;
+	const int  * * * * ids;
 	int  i;
 	float  f;
 	const long double  dl;
@@ -16,7 +16,7 @@ bool serializer_Test_to_json(Serializer *p_ser, const void *p_val) {
 	const Test *tmp = (const Test*)p_val;
 
 	SER_VALIDATE(serializer_json_start_field(p_ser, "ids"));
-	SER_VALIDATE(serializer_int_to_json(p_ser, tmp->ids));
+	SER_VALIDATE(serializer_int_to_json(p_ser, ****tmp->ids));
 	SER_VALIDATE(serializer_json_end_field(p_ser));
 
 	SER_VALIDATE(serializer_json_start_field(p_ser, "i"));
@@ -39,7 +39,7 @@ bool serializer_Test_to_json(Serializer *p_ser, const void *p_val) {
 }
 
 typedef struct Test2 {
-	Test  t;
+	Test  * t;
 } Test2;
 bool serializer_Test2_to_json(Serializer *p_ser, const void *p_val) {
 	assert(NULL != p_val);
@@ -47,7 +47,7 @@ bool serializer_Test2_to_json(Serializer *p_ser, const void *p_val) {
 	const Test2 *tmp = (const Test2*)p_val;
 
 	SER_VALIDATE(serializer_json_start_field(p_ser, "t"));
-	SER_VALIDATE(serializer_Test_to_json(p_ser, &tmp->t));
+	SER_VALIDATE(serializer_Test_to_json(p_ser, tmp->t));
 	SER_VALIDATE(serializer_json_end_field(p_ser));
 
 	return true;
