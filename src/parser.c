@@ -66,9 +66,70 @@ static void error_at_current(const char *message) {
   } while (0)
 
 
+static bool process_annotation(const Token *annotation, AnnotationInfo *p_info) {
+  assert(NULL != p_info);
+
+  size_t len = annotation->lexeme.length;
+
+  for (size_t i = 0; i < len;) {
+    char c = annotation->lexeme.p_begin[i];
+    switch (c) {
+      case ' ':
+      case '\t':
+        ++i;
+        break;
+
+      case '@': {
+        ++i;
+        const char *word_begin = annotation->lexeme.p_begin + i;
+        while (i < len && c != ' ' && c != '\t') {
+          c = annotation->lexeme.p_begin[i];
+          ++i;
+        }
+        StringView word = 
+          string_view_from_cstr_slice(word_begin, 0, annotation->lexeme.p_begin + i - word_begin - (i < len));
+
+        if (string_view_equals(&word, &string_view_from_cstr("array"))) {
+          p_info->kind = ANN_ARRAY;
+        } else if (ANN_ARRAY == p_info->kind && string_view_equals(&word, &string_view_from_cstr("size"))) {
+
+          c = annotation->lexeme.p_begin[i];
+          while (i < len && (c == ' ' || c == '\t')) {
+            c = annotation->lexeme.p_begin[i];
+            ++i;
+          }
+
+          const char *size_field_name_begin = annotation->lexeme.p_begin + i;
+          c = annotation->lexeme.p_begin[i];
+          while (i < len && c != ' ' && c != '\t') {
+            c = annotation->lexeme.p_begin[i];
+            ++i;
+          }
+
+          if (size_field_name_begin == annotation->lexeme.p_begin + i) {
+            error_at(annotation, "name of @size field should be non empty");
+            return false;
+          }
+
+          p_info->as.annotation_array.array_size_field_name = 
+            string_view_from_cstr_slice(size_field_name_begin, 0, annotation->lexeme.p_begin + i - size_field_name_begin - (i < len));
+        } else if (string_view_equals(&word, &string_view_from_cstr("omit"))) {
+          p_info->kind = ANN_OMIT;
+        } else {
+          error_at(annotation, "unknown annotation keyword after '@'");
+          return false;
+        }
+      }
+    }
+  }
+
+  return true;
+}
+
 
 
 static bool validate_type_info(TypeInfo *p_info) {
+  assert(NULL != p_info);
   return p_info->base_type != TYPE_UNINITIALIZED
     && !((p_info->base_type == TYPE_INT && p_info->longness > 2)
     || (p_info->base_type == TYPE_DOUBLE && p_info->longness > 1)
@@ -180,8 +241,18 @@ static bool handle_struct_body(StructInfo *out) {
 
     var_info.name = parser.current.lexeme;
     var_info.offset = offset;
-    vec_push(out->fields, var_info);
     offset += type_info_get_size(&var_info.type_info);
+
+    advance();
+    consume(TOK_SEMICOLON, "expect ';'");
+
+    if (check(TOK_ANNOTATION)) {
+      logf_trace("PARSER", "annotation %.*s\n", string_view_expand(parser.current.lexeme));
+      process_annotation(&parser.current, &var_info.type_info.ann_info);
+      advance();
+    }
+
+    vec_push(out->fields, var_info);
 
     {
       // logging
@@ -205,9 +276,6 @@ static bool handle_struct_body(StructInfo *out) {
                    i + 1, var_info.type_info.pointer_info.is_const[i] ? "const" : "nonconst");
       }
     }
-
-    advance();
-    consume(TOK_SEMICOLON, "expect ';'");
   }
 
   consume(TOK_RIGHT_BRACE, "expect '}'");

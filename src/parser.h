@@ -5,6 +5,7 @@
 #include "token.h"
 #include "./lib/ds/vec.h"
 #include "./lib/ds/table.h"
+#include "./serialization/primitives.h"
 
 typedef struct {
   Token current;
@@ -35,8 +36,34 @@ typedef struct {
   unsigned int indirections_count;
 } PointerInfo;
 
+typedef enum {
+  ANN_EMPTY,
+  ANN_ARRAY,
+  ANN_CUSTOM_CALLBACK,
+  ANN_OMIT,
+} AnnotationKind;
+
+typedef bool (*AnnCallback)(Serializer *p_ser, void *value);
+
+typedef struct {
+  StringView array_size_field_name;
+} AnnotationArray;
+
+typedef struct {
+  AnnCallback cb;
+} AnnotationCustomCallback;
+
+typedef struct {
+  AnnotationKind kind;
+  union {
+    AnnotationArray annotation_array;
+    AnnotationCustomCallback annotation_custom_callback;
+  } as;
+} AnnotationInfo;
+
 // Struct representing type information
 typedef struct {
+  AnnotationInfo ann_info;
   StringView struct_name; 
   PointerInfo pointer_info; 
   BaseType base_type;

@@ -20,6 +20,8 @@ typedef enum {
   TOK_TYPEDEF, TOK_VOID, TOK_UNSIGNED,
 
   // Specials.
+  TOK_EMPTY,
+  TOK_ANNOTATION,
   TOK_OTHER,
   TOK_EOF
 

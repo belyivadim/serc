@@ -14,7 +14,8 @@ typedef struct Test {
 } Test;
 
 struct Test2 {
-  Test * t;
+  Test * arr; // `@array @size arr_count`
+  unsigned int arr_count; // `@omit`
 };
 
 int main() {

@@ -23,6 +23,8 @@ const char *token_kind_to_cstr(TokenKind kind) {
     case TOK_TYPEDEF: return "TOK_TYPEDEF";
     case TOK_VOID: return "TOK_VOID";
     case TOK_UNSIGNED: return "TOK_UNSIGNED";
+    case TOK_ANNOTATION: return "TOK_ANNOTATION";
+    case TOK_EMPTY: return "TOK_EMPTY";
     case TOK_OTHER: return "TOK_OTHER";
     case TOK_EOF: return "TOK_EOF";
     default: return "Unknown TokenKind";

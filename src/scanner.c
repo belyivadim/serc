@@ -3,6 +3,7 @@
 
 #include "common.h"
 #include "scanner.h"
+#include "./lib/ds/logger.h"
 
 /// Represent the source code scanner
 typedef struct {
@@ -41,8 +42,8 @@ static Token token_create(TokenKind kind);
 /// gracefully handles newline characters.
 /// Also skips comments
 ///
-/// @return void
-static void skip_whitespace();
+/// @return Token: token of kind TOK_EMPTY or TOK_ANNOTATION
+static Token skip_whitespace();
 
 /// Peeks current character in the scanner
 ///
@@ -102,7 +103,10 @@ void scanner_init(const char *source) {
 }
 
 Token scan_token() {
-  skip_whitespace();
+  Token annotation = skip_whitespace();
+  if (annotation.kind == TOK_ANNOTATION) {
+    return annotation;
+  }
 
   scanner.start = scanner.current;
 
@@ -142,7 +146,8 @@ static Token token_create(TokenKind kind) {
   };
 }
 
-static void skip_whitespace() {
+static Token skip_whitespace() {
+  Token annotation = {.kind = TOK_EMPTY};
   for (;;) {
     char c = peek();
     switch (c) {
@@ -159,7 +164,22 @@ static void skip_whitespace() {
 
       case '/':
         if (peek_next() == '/') {
-          while (peek() != '\n' && !is_at_end()) advance();
+          while (peek() != '\n' && !is_at_end()) {
+            if ('`' == peek() && TOK_EMPTY == annotation.kind) {
+              advance(); // `
+              annotation.kind = TOK_ANNOTATION;
+              annotation.line = scanner.line;
+              const char *ann_begin_str = scanner.current;
+              do {
+                advance();
+              } while ('`' != peek() && '\n' != peek() && !is_at_end());
+              if ('`' != peek()) {
+                logf_fatal("SCANNER", 1, "Missing closing '`' for annotation at the line %d\n", scanner.line);
+              }
+              annotation.lexeme = string_view_from_cstr_slice(ann_begin_str, 0, scanner.current - ann_begin_str);
+            }
+            advance();
+          } 
         } else if (peek_next() == '*') {
           do { 
             advance(); 
@@ -171,12 +191,12 @@ static void skip_whitespace() {
               advance();  // '/'
             }
         } else {
-          return;
+          return annotation;
         }
         break;
 
       default:
-        return;
+        return annotation;
     }
   }
 }
