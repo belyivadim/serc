@@ -1,7 +1,9 @@
 //typedef void (*fptr)(int param);
 typedef int bool;
+typedef const int ID;
 
 typedef struct Test {
+  ID *ids;
   int i;
   float f;
   const double long dl;

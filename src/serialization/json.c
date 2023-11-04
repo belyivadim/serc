@@ -4,6 +4,7 @@
 #define SER_VALIDATE(call) do { if (!(call)) { return false; } } while (0)
 
 typedef struct Test {
+	const int  * ids;
 	int  i;
 	float  f;
 	const long double  dl;
@@ -13,6 +14,10 @@ bool serializer_Test_to_json(Serializer *p_ser, const void *p_val) {
 	assert(NULL != p_val);
 
 	const Test *tmp = (const Test*)p_val;
+
+	SER_VALIDATE(serializer_json_start_field(p_ser, "ids"));
+	SER_VALIDATE(serializer_int_to_json(p_ser, tmp->ids));
+	SER_VALIDATE(serializer_json_end_field(p_ser));
 
 	SER_VALIDATE(serializer_json_start_field(p_ser, "i"));
 	SER_VALIDATE(serializer_int_to_json(p_ser, tmp->i));

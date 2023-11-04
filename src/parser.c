@@ -146,8 +146,7 @@ static bool parse_type_info(TypeInfo *p_info) {
         TypeInfo *tmp = NULL;
         if (table_get(&parser.typedefs, buff, (void**)&tmp)) {
           *p_info = *tmp;
-          advance();
-          return true;
+          break; // continue parsing the rest of the type
         }
 
         if (TYPE_UNINITIALIZED == p_info->base_type && p_info->longness > 0) p_info->base_type = TYPE_INT;
