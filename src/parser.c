@@ -113,8 +113,55 @@ static bool process_annotation(const Token *annotation, AnnotationInfo *p_info) 
 
           p_info->as.annotation_array.array_size_field_name = 
             string_view_from_cstr_slice(size_field_name_begin, 0, annotation->lexeme.p_begin + i - size_field_name_begin - (i < len));
+
         } else if (string_view_equals(&word, &string_view_from_cstr("omit"))) {
           p_info->kind = ANN_OMIT;
+        } else if (string_view_equals(&word, &string_view_from_cstr("callback"))) {
+          p_info->kind = ANN_CUSTOM_CALLBACK;
+        } else if (ANN_CUSTOM_CALLBACK == p_info->kind && string_view_equals(&word, &string_view_from_cstr("s"))) {
+          c = annotation->lexeme.p_begin[i];
+          while (i < len && (c == ' ' || c == '\t')) {
+            c = annotation->lexeme.p_begin[i];
+            ++i;
+          }
+
+          const char *cb_ser_name = annotation->lexeme.p_begin + i;
+          c = annotation->lexeme.p_begin[i];
+          while (i < len && c != ' ' && c != '\t') {
+            c = annotation->lexeme.p_begin[i];
+            ++i;
+          }
+
+          if (cb_ser_name == annotation->lexeme.p_begin + i) {
+            error_at(annotation, "name of @s (serialization function) should be non empty");
+            return false;
+          }
+
+          p_info->as.annotation_custom_callback.cb_ser_name = 
+            string_view_from_cstr_slice(cb_ser_name , 0, annotation->lexeme.p_begin + i - cb_ser_name - (i < len));
+
+        } else if (ANN_CUSTOM_CALLBACK == p_info->kind && string_view_equals(&word, &string_view_from_cstr("d"))) {
+          c = annotation->lexeme.p_begin[i];
+          while (i < len && (c == ' ' || c == '\t')) {
+            c = annotation->lexeme.p_begin[i];
+            ++i;
+          }
+
+          const char *cb_deser_name = annotation->lexeme.p_begin + i;
+          c = annotation->lexeme.p_begin[i];
+          while (i < len && c != ' ' && c != '\t') {
+            c = annotation->lexeme.p_begin[i];
+            ++i;
+          }
+
+          if (cb_deser_name == annotation->lexeme.p_begin + i) {
+            error_at(annotation, "name of @d (deserialization function) should be non empty");
+            return false;
+          }
+
+          p_info->as.annotation_custom_callback.cb_deser_name = 
+            string_view_from_cstr_slice(cb_deser_name , 0, annotation->lexeme.p_begin + i - cb_deser_name - (i < len));
+
         } else {
           error_at(annotation, "unknown annotation keyword after '@'");
           return false;
@@ -123,18 +170,37 @@ static bool process_annotation(const Token *annotation, AnnotationInfo *p_info) 
     }
   }
 
+  // TODO: ann_info validation
   return true;
 }
 
 
 
 static bool validate_type_info(TypeInfo *p_info) {
+#define NOT_VALID(err_msg) do {error_at_current((err_msg)); return false;} while(0)
+
   assert(NULL != p_info);
-  return p_info->base_type != TYPE_UNINITIALIZED
-    && !((p_info->base_type == TYPE_INT && p_info->longness > 2)
+
+
+  if (p_info->base_type == TYPE_UNINITIALIZED) {
+    NOT_VALID("Type specifier missing.");
+  }
+
+  if ((p_info->base_type == TYPE_INT && p_info->longness > 2)
     || (p_info->base_type == TYPE_DOUBLE && p_info->longness > 1)
-    || (p_info->base_type != TYPE_INT && p_info->base_type != TYPE_DOUBLE && p_info->longness > 0) 
-   );
+    || (p_info->base_type != TYPE_INT && p_info->base_type != TYPE_DOUBLE && p_info->longness > 0)) {
+    NOT_VALID("Longness of the type has been exceeded.");
+  }
+
+  if (p_info->base_type == TYPE_VOID) {
+    if (p_info->pointer_info.indirections_count <= 0) {
+      NOT_VALID("Incomplete type `void`.");
+    }
+  }
+
+  return true;
+
+#undef NOT_VALID
 }
 
 static bool parse_type_info(TypeInfo *p_info) {
@@ -214,6 +280,8 @@ static bool parse_type_info(TypeInfo *p_info) {
         return validate_type_info(p_info);
       }
 
+      case TOK_ANNOTATION: break; // probably commented out annotation
+
       default:
         error_at_current("expect type");
         return false;
@@ -254,28 +322,28 @@ static bool handle_struct_body(StructInfo *out) {
 
     vec_push(out->fields, var_info);
 
-    {
-      // logging
-      StringView base_type =
-        TYPE_STRUCT == var_info.type_info.base_type
-        ? var_info.type_info.struct_name 
-        : string_view_from_cstr(base_type_to_cstr(var_info.type_info.base_type));
+    // {
+    //   // logging
+    //   StringView base_type =
+    //     TYPE_STRUCT == var_info.type_info.base_type
+    //     ? var_info.type_info.struct_name 
+    //     : string_view_from_cstr(base_type_to_cstr(var_info.type_info.base_type));
 
-      logf_trace("PARSER", 
-                 "symbol " string_view_farg " with offset %d "
-                 " %shas base type " string_view_farg ", %slongness %d%s\n",
-                 string_view_expand(parser.current.lexeme), var_info.offset,
-                 var_info.type_info.is_const ? "is const, " : "",
-                 string_view_expand(base_type),
-                 var_info.type_info.pointer_info.indirections_count > 0 ? "is pointer, " : "",
-                 var_info.type_info.longness,
-                 var_info.type_info.is_unsigned ? " ,is unsigned" : "");
+    //   logf_trace("PARSER", 
+    //              "symbol " string_view_farg " with offset %d "
+    //              " %shas base type " string_view_farg ", %slongness %d%s\n",
+    //              string_view_expand(parser.current.lexeme), var_info.offset,
+    //              var_info.type_info.is_const ? "is const, " : "",
+    //              string_view_expand(base_type),
+    //              var_info.type_info.pointer_info.indirections_count > 0 ? "is pointer, " : "",
+    //              var_info.type_info.longness,
+    //              var_info.type_info.is_unsigned ? " ,is unsigned" : "");
 
-      for (unsigned int i = 0; i < var_info.type_info.pointer_info.indirections_count; ++i) {
-        logf_trace("PARSER", "\t indirection %u is %s\n", 
-                   i + 1, var_info.type_info.pointer_info.is_const[i] ? "const" : "nonconst");
-      }
-    }
+    //   for (unsigned int i = 0; i < var_info.type_info.pointer_info.indirections_count; ++i) {
+    //     logf_trace("PARSER", "\t indirection %u is %s\n", 
+    //                i + 1, var_info.type_info.pointer_info.is_const[i] ? "const" : "nonconst");
+    //   }
+    // }
   }
 
   consume(TOK_RIGHT_BRACE, "expect '}'");
@@ -298,7 +366,7 @@ static bool handle_struct_definition(vec(StructInfo) *out) {
   } else {
     struct_name = parser.previous.lexeme;
     if (!match(TOK_LEFT_BRACE)) {
-      return false;
+      return true; // not a struct definition
     }
   }
 
@@ -306,7 +374,7 @@ static bool handle_struct_definition(vec(StructInfo) *out) {
   struct_info_init(struct_info);
   logf_trace("PARSER", "====struct " string_view_farg " begin====\n", string_view_expand(struct_name));
   bool ok = handle_struct_body(&struct_info);
-  logf_trace("PARSER", "====struct " string_view_farg " end====\n", string_view_expand(struct_name));
+  // logf_trace("PARSER", "====struct " string_view_farg " end====\n", string_view_expand(struct_name));
 
   if (!ok) {
     struct_info_free(&struct_info);
@@ -321,10 +389,13 @@ static bool handle_struct_definition(vec(StructInfo) *out) {
 static bool parse_iteration(vec(StructInfo) *out) {
   switch (parser.current.kind) {
     case TOK_STRUCT: {
+      size_t out_count = vec_count(*out);
       if (!handle_struct_definition(out)) {
         return false;
       } 
-      consume(TOK_SEMICOLON, "expect ';' after struct definition");
+      if (out_count < vec_count(*out)) { // if it was a struct definition
+        consume(TOK_SEMICOLON, "expect ';' after struct definition");
+      }
       break;
     }
 
@@ -380,17 +451,21 @@ static void typedefs_free_cb(char *key, TypeInfo *value) {
 
 bool parse(const char *source, vec(StructInfo) *out) {
   // TODO: parser initialization and destruction
+  bool ret = true;
   scanner_init(source);
   table_init(&parser.typedefs, hash_cstr_default, 
              (KeyCmpFunc)typedefs_key_cmp, (FreeKeyValFunc)typedefs_free_cb);
   advance();
 
   do {
-    if (!parse_iteration(out)) return false;
+    if (!parse_iteration(out)) {
+      ret = false;
+      break;
+    }
   } while (parser.current.kind != TOK_EOF);
 
   table_free(&parser.typedefs);
-  return true;
+  return ret;
 }
 
 const char* base_type_to_cstr(BaseType t) {

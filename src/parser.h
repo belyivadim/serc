@@ -43,14 +43,16 @@ typedef enum {
   ANN_OMIT,
 } AnnotationKind;
 
-typedef bool (*AnnCallback)(Serializer *p_ser, void *value);
+// typedef bool (*AnnCallbackSer)(Serializer *p_ser, const void *value);
+// typedef bool (*AnnCallbackDeser)(Serializer *p_ser, void *value);
 
 typedef struct {
   StringView array_size_field_name;
 } AnnotationArray;
 
 typedef struct {
-  AnnCallback cb;
+  StringView cb_ser_name;
+  StringView cb_deser_name;
 } AnnotationCustomCallback;
 
 typedef struct {

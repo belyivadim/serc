@@ -36,7 +36,7 @@ bool finalize_out_files_json(FILE *out_h, FILE *out_c) {
 
 static bool is_primitive_base_type(BaseType type) {
   return TYPE_CHAR == type || TYPE_SHORT == type || TYPE_INT == type
-    || TYPE_FLOAT == type || TYPE_DOUBLE == type || TYPE_VOID == type;
+    || TYPE_FLOAT == type || TYPE_DOUBLE == type; //|| TYPE_VOID == type;
 }
 
 
@@ -95,6 +95,7 @@ static StringBuilder type_info_get_type_str(const TypeInfo *p_ti) {
       case TYPE_INT: string_builder_append_cstr(&sb, "int"); break;
       case TYPE_FLOAT: string_builder_append_cstr(&sb, "float"); break;
       case TYPE_DOUBLE: string_builder_append_cstr(&sb, "double"); break;
+      case TYPE_VOID: string_builder_append_cstr(&sb, "void"); break;
       default: assert(false && "Not reachable"); break;
     }
   }
@@ -111,12 +112,18 @@ static StringBuilder type_info_get_type_str(const TypeInfo *p_ti) {
   return sb;
 }
 
-static void generate_json_for_field(const VarInfo *field, FILE *out_c) {
+static bool generate_json_for_field(const VarInfo *field, FILE *out_c) {
   assert(NULL != field);
   assert(NULL != out_c);
 
   if (ANN_OMIT == field->type_info.ann_info.kind) {
-    return;
+    return true;
+  }
+
+  if (field->type_info.base_type == TYPE_VOID && field->type_info.ann_info.kind != ANN_CUSTOM_CALLBACK) {
+    logf_error("CODE_GEN", "Field %.*s has base type void and no custom callback was provided.\n", field->name);
+    log_error("CODE_GEN", "NOTE: to provide custom callback write annotation after the field `@callback @s <ser func name> @d <deser func name`");
+    return false;
   }
 
   bool is_primitive = is_primitive_base_type(field->type_info.base_type);
@@ -154,23 +161,41 @@ static void generate_json_for_field(const VarInfo *field, FILE *out_c) {
 
   fprintf(out_c, "\tSER_VALIDATE(serializer_json_start_field(p_ser, \"%.*s\"));\n", 
           string_view_expand(field->name));
-  if (ANN_ARRAY == field->type_info.ann_info.kind) {
-    fprintf(out_c, "\tSER_VALIDATE(serializer_json_start_array(p_ser));\n");
-    fprintf(out_c, "\tfor (size_t i = 0; i < tmp->%.*s; ++i) {\n", 
-            string_view_expand(field->type_info.ann_info.as.annotation_array.array_size_field_name));
 
-    fprintf(out_c, "\t\tSER_VALIDATE(serializer_%s_to_json(p_ser, %stmp->%.*s + i));\n", 
-            string_builder_get_cstr(&type), field_prefix_str, string_view_expand(field->name));
+  switch (field->type_info.ann_info.kind) {
+    case ANN_ARRAY: {
+      fprintf(out_c, "\tSER_VALIDATE(serializer_json_start_array(p_ser));\n");
+      fprintf(out_c, "\tfor (size_t i = 0; i < tmp->%.*s; ++i) {\n", 
+              string_view_expand(field->type_info.ann_info.as.annotation_array.array_size_field_name));
 
-    fprintf(out_c, "\t}\n");
-    fprintf(out_c, "\tSER_VALIDATE(serializer_json_end_array(p_ser));\n");
-  } else {
-    fprintf(out_c, "\tSER_VALIDATE(serializer_%s_to_json(p_ser, %stmp->%.*s));\n", 
-            string_builder_get_cstr(&type), field_prefix_str, string_view_expand(field->name));
+      fprintf(out_c, "\t\tSER_VALIDATE(serializer_%s_to_json(p_ser, %stmp->%.*s + i));\n", 
+              string_builder_get_cstr(&type), field_prefix_str, string_view_expand(field->name));
+
+      fprintf(out_c, "\t}\n");
+      fprintf(out_c, "\tSER_VALIDATE(serializer_json_end_array(p_ser));\n");
+      break;
+    }
+    case ANN_CUSTOM_CALLBACK: {
+      StringView cb_ser_name = field->type_info.ann_info.as.annotation_custom_callback.cb_ser_name;
+      fprintf(out_c, "\tSER_VALIDATE(%.*s(p_ser, %stmp->%.*s));\n", 
+              string_view_expand(cb_ser_name), field_prefix_str, string_view_expand(field->name));
+
+      break;
+    }
+    case ANN_EMPTY: {
+      fprintf(out_c, "\tSER_VALIDATE(serializer_%s_to_json(p_ser, %stmp->%.*s));\n", 
+              string_builder_get_cstr(&type), field_prefix_str, string_view_expand(field->name));
+      break;
+    }
+
+    default:
+      assert(false && "not reachable");
   }
+
   fprintf(out_c, "\tSER_VALIDATE(serializer_json_end_field(p_ser));\n\n");
 
   string_builder_free(type);
+  return true;
 }
 
 bool generate_json_for_struct(const StructInfo *p_si, FILE *out_h, FILE *out_c) {
@@ -195,6 +220,15 @@ bool generate_json_for_struct(const StructInfo *p_si, FILE *out_h, FILE *out_c) 
   }
   fprintf(out_c, "} " string_view_farg ";\n", string_view_expand(p_si->name));
 
+  // forward decl for all custom callbacks
+  vec_for_each(p_si->fields, i, {
+                if (p_si->fields[i].type_info.ann_info.kind == ANN_CUSTOM_CALLBACK) {
+                  AnnotationCustomCallback acc = p_si->fields[i].type_info.ann_info.as.annotation_custom_callback;
+                  fprintf(out_c, "bool %.*s(Serializer *p_ser, const void *value);\n", string_view_expand(acc.cb_ser_name));
+                  fprintf(out_c, "bool %.*s(Serializer *p_ser, void *value);\n", string_view_expand(acc.cb_deser_name));
+                }
+               });
+
 
   // serialize function
   fprintf(out_c, "bool serializer_%.*s_to_json(Serializer *p_ser, const void *p_val) {\n",
@@ -207,7 +241,7 @@ bool generate_json_for_struct(const StructInfo *p_si, FILE *out_h, FILE *out_c) 
             string_view_expand(p_si->name), string_view_expand(p_si->name));
 
     // serialize fields
-    vec_for_each(p_si->fields, i, { generate_json_for_field(p_si->fields + i, out_c); });
+    vec_for_each(p_si->fields, i, { if (!generate_json_for_field(p_si->fields + i, out_c)) return false; });
 
     fputs("\treturn true;\n", out_c);
   }
@@ -217,7 +251,9 @@ bool generate_json_for_struct(const StructInfo *p_si, FILE *out_h, FILE *out_c) 
   return true;
 }
 
+
 #define SERIALIZATION_DIR "./src/serialization/"
+
 bool generate_json_serialization(const vec(StructInfo) const * p_si, const char *path) {
   assert(NULL != p_si);
   StringBuilder dotc; string_builder_init(dotc);
